@@ -1,9 +1,9 @@
 package merkledag
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"hash"
-	"sort"
 )
 
 type Link struct {
@@ -17,6 +17,8 @@ type Object struct {
 	Data  []byte
 }
 
+const MaxBlobSize = 256 * 1024 // 256KB
+
 func Add(store KVStore, node Node, h hash.Hash) []byte {
 	// 根据节点类型进行处理
 	switch node.Type() {
@@ -24,7 +26,51 @@ func Add(store KVStore, node Node, h hash.Hash) []byte {
 		file := node.(File)
 		data := file.Bytes()
 
-		// 计算文件内容的哈希值
+		// 如果文件大小超过256KB，则进行分割
+		if len(data) > MaxBlobSize {
+			var childHashes [][]byte
+			for len(data) > 0 {
+				chunk := data[:MaxBlobSize]
+				data = data[MaxBlobSize:]
+
+				// 计算文件块的哈希值
+				chunkHash := hashChunk(chunk)
+				childHashes = append(childHashes, chunkHash)
+
+				// 存储文件块到KVStore
+				err := store.Put(chunkHash, chunk)
+				if err != nil {
+					panic(err)
+				}
+			}
+
+			// 计算文件的Merkle Root哈希值
+			for _, childHash := range childHashes {
+				h.Write(childHash)
+			}
+			fileHash := h.Sum(nil)
+
+			// 创建文件对象的链接列表
+			links := make([]Link, 0, len(childHashes))
+			for _, childHash := range childHashes {
+				links = append(links, Link{Hash: childHash})
+			}
+
+			// 将文件对象（包含链接列表）存储在KVStore中
+			fileObj := Object{Links: links}
+			objectBytes, err := json.Marshal(fileObj)
+			if err != nil {
+				panic(err)
+			}
+			err = store.Put(fileHash, objectBytes)
+			if err != nil {
+				panic(err)
+			}
+
+			return fileHash
+		}
+
+		// 如果文件大小不超过最大blob大小，则直接处理
 		h.Write(data)
 		fileHash := h.Sum(nil)
 
@@ -44,13 +90,9 @@ func Add(store KVStore, node Node, h hash.Hash) []byte {
 		var childHashes [][]byte
 		for it.Next() {
 			child := it.Node()
-			var newH hash.Hash
-			childHash := Add(store, child, newH) // 使用h的新实例来计算子节点的哈希
+			childHash := Add(store, child, sha256.New()) // 使用新的hash实例来计算子节点的哈希
 			childHashes = append(childHashes, childHash)
 		}
-
-		// 对子节点的哈希值进行排序
-		sortHashes(childHashes)
 
 		// 计算目录的Merkle Root哈希值
 		for _, childHash := range childHashes {
@@ -81,19 +123,9 @@ func Add(store KVStore, node Node, h hash.Hash) []byte {
 	}
 }
 
-// sortHashes 是一个辅助函数，用于对哈希值进行排序
-func sortHashes(hashes [][]byte) {
-	sort.Slice(hashes, func(i, j int) bool {
-		return compare(hashes[i], hashes[j]) < 0
-	})
-}
-
-// compare 是一个辅助函数，用于比较两个哈希值
-func compare(a, b []byte) int {
-	for i := range a {
-		if a[i] != b[i] {
-			return int(a[i]) - int(b[i])
-		}
-	}
-	return len(a) - len(b)
+// hashChunk 计算给定数据块的哈希值
+func hashChunk(chunk []byte) []byte {
+	h := sha256.New()
+	h.Write(chunk)
+	return h.Sum(nil)
 }
