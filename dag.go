@@ -60,6 +60,7 @@ func Add(store KVStore, node Node, h hash.Hash) []byte {
 			fileObj := Object{Links: links}
 			objectBytes, err := json.Marshal(fileObj)
 			if err != nil {
+				// 处理序列化错误
 				panic(err)
 			}
 			err = store.Put(fileHash, objectBytes)
@@ -70,7 +71,7 @@ func Add(store KVStore, node Node, h hash.Hash) []byte {
 			return fileHash
 		}
 
-		// 如果文件大小不超过最大blob大小，则直接处理
+		// 如果文件大小不超过256KB，则直接处理
 		h.Write(data)
 		fileHash := h.Sum(nil)
 
@@ -108,7 +109,6 @@ func Add(store KVStore, node Node, h hash.Hash) []byte {
 		dirObj := Object{Links: links}
 		objectBytes, err := json.Marshal(dirObj)
 		if err != nil {
-			// 处理序列化错误
 			panic(err)
 		}
 		err = store.Put(dirHash, objectBytes)
