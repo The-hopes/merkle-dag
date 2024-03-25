@@ -1,7 +1,9 @@
 package merkledag
 
 import (
+	"encoding/hex"
 	"encoding/json"
+	"strings"
 )
 
 // Hash to file
@@ -17,9 +19,15 @@ func Hash2File(store KVStore, hash []byte, path string, hp HashPool) []byte {
 		panic(err)
 	}
 
+	// 计算忽略路径分隔符的路径的哈希值
+	sanitizedPath := strings.ReplaceAll(path, "/", "")
+	h := hp.Get()
+	h.Write([]byte(sanitizedPath))
+	pathHash := h.Sum(nil)
+
 	// 遍历Links找到匹配的path
 	for _, link := range tree.Links {
-		if link.Name == path {
+		if hex.EncodeToString(link.Hash) == hex.EncodeToString(pathHash) {
 			// 根据Link的的hash从KVStore中检索文件内容
 			fileContent, err := store.Get(link.Hash)
 			if err != nil {
